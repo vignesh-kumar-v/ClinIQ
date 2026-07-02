@@ -100,6 +100,8 @@ def split_into_sections(text: str) -> list[dict]:
 
         # Remove trailing comma from previous section that bled into this header
         content = re.sub(r",\s*$", "", content)
+        # Strip leading commas and whitespace
+        content = re.sub(r"^,\s*", "", content)
         # Normalize whitespace
         content = re.sub(r"\s+", " ", content).strip()
 

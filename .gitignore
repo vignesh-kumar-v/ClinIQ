@@ -1,0 +1,51 @@
+# Data files (large, generated)
+data/
+data.zip
+
+# ChromaDB
+chroma_db/
+chroma/
+*.chroma/
+
+# SQLite staging databases
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+
+# Environment variables (API keys)
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# Progress/checkpoint files
+*_progress.txt

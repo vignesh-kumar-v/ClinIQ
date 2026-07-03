@@ -120,11 +120,13 @@ class ProgressBar:
         else:
             eta_str = "0s"
 
+        rate = self.current / elapsed if elapsed > 0 else 0
+
         elapsed_str = self._format_time(elapsed)
         line = (
             f"\r  {self.label} [{bar}] {pct * 100:5.1f}% "
             f"({self.current}/{self.total}) "
-            f"[{elapsed_str}<{eta_str}]"
+            f"[{elapsed_str}<{eta_str}, {rate:.1f}/s]"
         )
         sys.stdout.write(line)
         sys.stdout.flush()

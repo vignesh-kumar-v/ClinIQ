@@ -21,7 +21,7 @@ import requests
 
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 EMBEDDING_MODEL = "qwen3-embedding:0.6b"
-CHAT_MODEL = "llama3.1:8b"
+CHAT_MODEL = "qwen3.5:9b-mlx"
 CHROMA_PATH = Path("chroma_db")
 TOP_K_PATIENT = 20
 TOP_K_KNOWLEDGE = 10

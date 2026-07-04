@@ -7,6 +7,12 @@ log = get_logger("router.query")
 router = APIRouter()
 
 
+@router.get("/patients/{patient_id}/chat-history")
+async def get_chat_history(patient_id: str):
+    history = await writer.get_chat_history(patient_id)
+    return {"patient_id": patient_id, "history": history}
+
+
 @router.post("/patients/{patient_id}/query", response_model=QueryResponse)
 async def query_patient(patient_id: str, body: QueryRequest):
     log.info(f"Query patient={patient_id} session={body.session_id} message={body.message[:80]!r}")

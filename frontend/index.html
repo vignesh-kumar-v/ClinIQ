@@ -298,6 +298,7 @@ async function selectPatient(id) {
     document.getElementById('chat-messages').innerHTML = '';
     renderAllTabs(data);
     switchTab('overview');
+    loadChatHistory(id);
     // refresh sidebar highlight
     loadPatients(document.getElementById('search-input').value.trim());
   } catch(e) {
@@ -372,6 +373,26 @@ function switchTab(name) {
     document.getElementById(`tab-${t}`).classList.toggle('flex', t === name && t === 'chat');
   });
   if (name === 'activity') loadActivity();
+}
+
+// ── Chat history ──────────────────────────────────────────────────────────
+async function loadChatHistory(patientId) {
+  try {
+    const r = await fetch(`${API}/patients/${patientId}/chat-history`);
+    const data = await r.json();
+    const history = data.history || [];
+    if (!history.length) return;
+    const container = document.getElementById('chat-messages');
+    const divider = document.createElement('div');
+    divider.className = 'flex items-center gap-2 text-xs text-slate-400 my-2';
+    divider.innerHTML = '<div class="flex-1 h-px bg-slate-200"></div><span>Previous conversation</span><div class="flex-1 h-px bg-slate-200"></div>';
+    container.appendChild(divider);
+    history.forEach(turn => appendBubble(turn.content, turn.role === 'assistant' ? 'ai' : 'user'));
+    const end = document.createElement('div');
+    end.className = 'flex items-center gap-2 text-xs text-slate-400 my-2';
+    end.innerHTML = '<div class="flex-1 h-px bg-slate-200"></div><span>New session</span><div class="flex-1 h-px bg-slate-200"></div>';
+    container.appendChild(end);
+  } catch {}
 }
 
 // ── Chat ──────────────────────────────────────────────────────────────────

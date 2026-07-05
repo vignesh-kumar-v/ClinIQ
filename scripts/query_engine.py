@@ -3,8 +3,8 @@
 ClinicalRecall RAG Query Engine.
 
 Two modes:
-  - Patient-scoped: /patient <name>  → searches synthea_structured + mtsamples_knowledge
-  - General:        any query        → searches mtsamples_knowledge only
+  - Patient-scoped: /patient <name>  → searches synthea_structured + mtsamples_chunks
+  - General:        any query        → searches mtsamples_chunks only
 
 Uses Ollama for both embedding (qwen3-embedding:0.6b) and generation (qwen3.5:9b-mlx).
 """
@@ -111,8 +111,11 @@ def retrieve_patient_context(patient_id: str, query: str) -> list[dict]:
 
 
 def retrieve_knowledge(query: str, k: int = TOP_K_KNOWLEDGE) -> list[dict]:
-    """Search mtsamples_knowledge for general clinical knowledge."""
-    col = chroma_client.get_collection("mtsamples_knowledge")
+    """Search mtsamples_chunks for general clinical knowledge."""
+    try:
+        col = chroma_client.get_collection("mtsamples_chunks")
+    except Exception:
+        col = chroma_client.get_collection("mtsamples_knowledge")
     embedding = embed_query(query)
     results = col.query(query_embeddings=[embedding], n_results=k)
     chunks = []

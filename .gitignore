@@ -50,3 +50,6 @@ env/
 # Progress/checkpoint files
 *_progress.txt
 chroma_ingestion_progress/
+
+# Teammate's duplicate folder
+ClinIQ/

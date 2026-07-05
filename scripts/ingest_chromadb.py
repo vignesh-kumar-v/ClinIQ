@@ -926,14 +926,15 @@ def step_setup_logs():
 # ── Main ───────────────────────────────────────────────────────────────────
 
 def main():
+    global BATCH_SIZE
+
     parser = argparse.ArgumentParser(description="ClinicalRecall ChromaDB Ingestion Pipeline")
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE, help="Embedding batch size")
     parser.add_argument("--reset", action="store_true", help="Drop and recreate all collections")
-    parser.add_argument("--only", choices=["normalize", "patients", "mtsamples", "logs"],
-                        help="Run only one step")
+    parser.add_argument("--only", choices=["normalize", "patients", "mtsamples", "logs", "synthea"],
+                        help="Run only one step (synthea = reset + re-ingest FHIR + notes only)")
     args = parser.parse_args()
 
-    global BATCH_SIZE
     BATCH_SIZE = args.batch_size
 
     _get_embed_model()
@@ -969,6 +970,21 @@ def main():
         step_embed_mtsamples()
     elif args.only == "logs":
         step_setup_logs()
+    elif args.only == "synthea":
+        print("\nResetting synthea collections only (mtsamples_knowledge untouched)...")
+        for name in ["synthea_structured", "patient_index"]:
+            try:
+                chroma_client.delete_collection(name)
+                print(f"  Dropped: {name}")
+            except Exception:
+                pass
+        import shutil
+        for pfile in ["synthea.json", "clinician_notes.json"]:
+            ppath = PROGRESS_DIR / pfile
+            if ppath.exists():
+                ppath.unlink()
+                print(f"  Cleared progress: {pfile}")
+        step_embed_patients()
     else:
         step_normalize_sections()
         step_embed_patients()

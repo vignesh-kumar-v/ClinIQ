@@ -14,13 +14,20 @@ _model = None
 def _get_model() -> SentenceTransformer:
     global _model
     if _model is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
         log.info(f"Loading embedding model {EMBED_MODEL} on {device}")
+        model_kwargs = {}
+        if device in ("cuda", "mps"):
+            model_kwargs = {"dtype": torch.float16}
         _model = SentenceTransformer(
             EMBED_MODEL,
             device=device,
-            model_kwargs={"dtype": torch.float16, "attn_implementation": "sdpa"}
-            if device == "cuda" else {},
+            model_kwargs=model_kwargs,
         )
         _model.max_seq_length = 1024
         log.info(f"Embedding model loaded dim={_model.get_sentence_embedding_dimension()}")

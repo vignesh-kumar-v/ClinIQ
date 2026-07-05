@@ -57,13 +57,20 @@ _embed_model: Optional[SentenceTransformer] = None
 def _get_embed_model() -> SentenceTransformer:
     global _embed_model
     if _embed_model is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
         print(f"Loading embedding model {EMBED_MODEL_NAME} on {device}...")
+        model_kwargs = {}
+        if device in ("cuda", "mps"):
+            model_kwargs = {"dtype": torch.float16}
         _embed_model = SentenceTransformer(
             EMBED_MODEL_NAME,
             device=device,
-            model_kwargs={"dtype": torch.float16, "attn_implementation": "sdpa"}
-            if device == "cuda" else {},
+            model_kwargs=model_kwargs,
         )
         _embed_model.max_seq_length = 1024
         dim = _embed_model.get_sentence_embedding_dimension()

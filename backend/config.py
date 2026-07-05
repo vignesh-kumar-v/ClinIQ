@@ -10,7 +10,7 @@ QWEN_API_KEY = os.getenv("QWEN_API_KEY", "")
 QWEN_API_URL = os.getenv("QWEN_API_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
 
 CHAT_MODEL = os.getenv("CHAT_MODEL", "qwen-max")
-INTENT_MODEL = os.getenv("INTENT_MODEL", "qwen-plus")
+INTENT_MODEL = os.getenv("INTENT_MODEL", "qwen-turbo")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "text-embedding-v3")
 
 TOP_K_SYNTHEA = int(os.getenv("TOP_K_SYNTHEA", "5"))

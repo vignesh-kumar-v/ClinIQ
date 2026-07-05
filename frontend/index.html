@@ -422,21 +422,43 @@ async function sendChat() {
 
   appendBubble(msg, 'user');
   const thinking = appendBubble('…', 'ai');
+  let fullText = '';
   try {
-    const r = await fetch(`${API}/patients/${currentPatient.patient_id}/query`, {
+    const r = await fetch(`${API}/patients/${currentPatient.patient_id}/query/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: msg, session_id: chatSession }),
     });
-    const data = await r.json();
-    thinking.textContent = data.answer || '(no response)';
-    if (data.intent === 'write' || data.intent === 'mixed') {
-      showToast('Record updated', 'success');
-      // Refresh patient data
-      const pr = await fetch(`${API}/patients/${currentPatient.patient_id}`);
-      const pd = await pr.json();
-      currentPatient = pd;
-      renderAllTabs(pd);
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.token) {
+            fullText += data.token;
+            thinking.innerHTML = marked.parse(fullText);
+            const container = document.getElementById('chat-messages');
+            container.scrollTop = container.scrollHeight;
+          }
+          if (data.done) {
+            if (data.intent === 'write' || data.intent === 'mixed') {
+              showToast('Record updated', 'success');
+              const pr = await fetch(`${API}/patients/${currentPatient.patient_id}`);
+              const pd = await pr.json();
+              currentPatient = pd;
+              renderAllTabs(pd);
+            }
+          }
+        } catch {}
+      }
     }
   } catch(e) {
     thinking.textContent = 'Error: ' + e.message;

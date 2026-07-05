@@ -15,19 +15,21 @@ _SYSTEM = (
 )
 
 
-async def chat(context: list[dict], history: list[dict], user_message: str) -> str:
+def _build_messages(context: list[dict], history: list[dict], user_message: str) -> list[dict]:
     context_text = "\n".join(
         f"{i + 1}. [{item.get('source', '')}] {item['text']}"
         for i, item in enumerate(context)
     )
     system_content = f"{_SYSTEM}\n\nContext:\n{context_text}" if context_text else _SYSTEM
-
-    messages = (
+    return (
         [{"role": "system", "content": system_content}]
         + history[-MAX_HISTORY_TURNS:]
         + [{"role": "user", "content": user_message}]
     )
 
+
+async def chat(context: list[dict], history: list[dict], user_message: str) -> str:
+    messages = _build_messages(context, history, user_message)
     log.info(f"LLM call model={CHAT_MODEL} context_chunks={len(context)} history_turns={len(history)}")
     log.debug(f"User message: {user_message[:120]!r}")
     try:
@@ -40,4 +42,22 @@ async def chat(context: list[dict], history: list[dict], user_message: str) -> s
         return answer
     except Exception as e:
         log.error(f"LLM call failed: {e}")
+        raise
+
+
+async def chat_stream(context: list[dict], history: list[dict], user_message: str):
+    messages = _build_messages(context, history, user_message)
+    log.info(f"LLM stream model={CHAT_MODEL} context_chunks={len(context)} history_turns={len(history)}")
+    try:
+        stream = llm_client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=messages,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta
+            if delta.content:
+                yield delta.content
+    except Exception as e:
+        log.error(f"LLM stream failed: {e}")
         raise

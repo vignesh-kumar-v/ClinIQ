@@ -3,11 +3,12 @@ from logger import get_logger
 
 log = get_logger("intent")
 
-_PROMPT = """Classify this clinical input as read, write, or mixed.
+_PROMPT = """Classify this input as read, write, mixed, or out_of_scope.
 write = contains new clinical data, updates, prescriptions, visit notes, changes
-read = question, summary request, lookup
-mixed = contains both new data AND a question
-Return only one word: read, write, or mixed.
+read = clinical question, summary request, patient lookup, medical knowledge query
+mixed = contains both new clinical data AND a clinical question
+out_of_scope = not related to healthcare, medicine, or clinical work (e.g. coding, weather, recipes, general trivia, jokes, personal questions)
+Return only one word: read, write, mixed, or out_of_scope.
 Input: {text}"""
 
 

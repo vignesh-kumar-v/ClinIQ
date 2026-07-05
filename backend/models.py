@@ -9,7 +9,7 @@ class QueryRequest(BaseModel):
 
 class QueryResponse(BaseModel):
     answer: str
-    intent: str  # read | write | mixed
+    intent: str  # read | write | mixed | out_of_scope
     sources: list[str]
 
 

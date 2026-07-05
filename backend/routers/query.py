@@ -19,6 +19,13 @@ async def query_patient(patient_id: str, body: QueryRequest):
 
     detected_intent = await intent.classify_intent(body.message)
 
+    if detected_intent == "out_of_scope":
+        log.info(f"Out-of-scope query blocked for patient={patient_id}")
+        refusal = "I'm a clinical memory assistant. I can only help with healthcare-related questions about patient records, medical knowledge, and clinical documentation. Please ask a clinical question."
+        await writer.save_chat_turn(patient_id, body.session_id, "user", body.message)
+        await writer.save_chat_turn(patient_id, body.session_id, "assistant", refusal)
+        return QueryResponse(answer=refusal, intent="out_of_scope", sources=[])
+
     if detected_intent == "write":
         log.info(f"Write path triggered for patient={patient_id}")
         payload = await extractor.extract_write_payload(body.message)

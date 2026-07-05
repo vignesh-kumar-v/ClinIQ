@@ -5,19 +5,21 @@ ClinicalRecall — Master ChromaDB Ingestion Pipeline.
 Runs everything in order:
   1. Normalize section names in SQLite (mtsamples)
   2. Embed Synthea FHIR bundles + clinician notes → synthea_structured, patient_index
-  3. Embed MTSamples chunks → mtsamples_chunks
+  3. Embed MTSamples chunks → mtsamples_knowledge
   4. Setup logs DB (activity_log, audit_log)
 
+Uses sentence-transformers (Qwen/Qwen3-Embedding-0.6B) for local embeddings.
+Aligned with the ClinIQ backend.
+
 Usage:
-    python ingest_chromadb.py [--model qwen3-embedding:0.6b] [--batch-size 100] [--reset]
+    python ingest_chromadb.py [--batch-size 100] [--reset]
     python ingest_chromadb.py --only normalize
     python ingest_chromadb.py --only patients
     python ingest_chromadb.py --only mtsamples
     python ingest_chromadb.py --only logs
 
 Prerequisites:
-    pip install chromadb ollama
-    ollama pull qwen3-embedding:0.6b
+    pip install chromadb sentence-transformers torch
 """
 
 import argparse
@@ -34,11 +36,12 @@ from pathlib import Path
 from typing import Optional
 
 import chromadb
-import ollama
+import torch
+from sentence_transformers import SentenceTransformer
 
 # ── Configuration ──────────────────────────────────────────────────────────
 
-EMBEDDING_MODEL = "qwen3-embedding:0.6b"
+EMBED_MODEL_NAME = "Qwen/Qwen3-Embedding-0.6B"
 BATCH_SIZE = 100
 CHROMA_PATH = Path("chroma_db")
 PROGRESS_DIR = Path("chroma_ingestion_progress")
@@ -47,6 +50,25 @@ NOTES_DIR = Path("data/clinician_notes")
 MTSAMPLES_DB = Path("data/mtsamples_staging.db")
 LOGS_DB = Path("data/logs.db")
 MAX_CHARS = 3000
+
+_embed_model: Optional[SentenceTransformer] = None
+
+
+def _get_embed_model() -> SentenceTransformer:
+    global _embed_model
+    if _embed_model is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Loading embedding model {EMBED_MODEL_NAME} on {device}...")
+        _embed_model = SentenceTransformer(
+            EMBED_MODEL_NAME,
+            device=device,
+            model_kwargs={"dtype": torch.float16, "attn_implementation": "sdpa"}
+            if device == "cuda" else {},
+        )
+        _embed_model.max_seq_length = 1024
+        dim = _embed_model.get_sentence_embedding_dimension()
+        print(f"  Loaded. Dimension: {dim}")
+    return _embed_model
 
 # ── Initialize ────────────────────────────────────────────────────────────
 
@@ -81,8 +103,14 @@ def clean(text: str) -> str:
 
 
 def embed_batch(texts: list[str]) -> list[list[float]]:
-    response = ollama.embed(model=EMBEDDING_MODEL, input=[clean(t) for t in texts])
-    return response["embeddings"]
+    model = _get_embed_model()
+    vecs = model.encode(
+        [clean(t) for t in texts],
+        batch_size=min(BATCH_SIZE, len(texts)),
+        normalize_embeddings=True,
+        show_progress_bar=False,
+    ).tolist()
+    return vecs
 
 
 def safe_embed_and_upsert(collection, batch_ids, batch_docs, batch_metas):
@@ -785,7 +813,7 @@ def step_embed_mtsamples():
         print(f"  ERROR: {MTSAMPLES_DB} not found. Run ingest_mtsamples.py first.")
         return
 
-    collection = get_collection("mtsamples_chunks")
+    collection = get_collection("mtsamples_knowledge")
     completed = load_progress("mtsamples_embed")
 
     conn = sqlite3.connect(str(MTSAMPLES_DB))
@@ -899,27 +927,27 @@ def step_setup_logs():
 
 def main():
     parser = argparse.ArgumentParser(description="ClinicalRecall ChromaDB Ingestion Pipeline")
-    parser.add_argument("--model", default=EMBEDDING_MODEL, help="Ollama embedding model")
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE, help="Embedding batch size")
     parser.add_argument("--reset", action="store_true", help="Drop and recreate all collections")
     parser.add_argument("--only", choices=["normalize", "patients", "mtsamples", "logs"],
                         help="Run only one step")
     args = parser.parse_args()
 
-    global EMBEDDING_MODEL, BATCH_SIZE
-    EMBEDDING_MODEL = args.model
+    global BATCH_SIZE
     BATCH_SIZE = args.batch_size
+
+    _get_embed_model()
 
     print("\u2554" + "\u2550" * 58 + "\u2557")
     print("\u2551     ClinicalRecall \u2014 ChromaDB Ingestion Pipeline         \u2551")
     print("\u2560" + "\u2550" * 58 + "\u2563")
-    print(f"\u2551  Embedding model : {EMBEDDING_MODEL:<36}\u2551")
+    print(f"\u2551  Embedding model : {EMBED_MODEL_NAME:<36}\u2551")
     print(f"\u2551  Batch size      : {BATCH_SIZE:<36}\u2551")
     print("\u255a" + "\u2550" * 58 + "\u255d")
 
     if args.reset:
         print("\nResetting all collections...")
-        for name in ["synthea_structured", "mtsamples_chunks", "patient_index"]:
+        for name in ["synthea_structured", "mtsamples_knowledge", "patient_index"]:
             try:
                 chroma_client.delete_collection(name)
                 print(f"  Dropped: {name}")
@@ -955,7 +983,7 @@ def main():
     print(f"INGESTION COMPLETE in {h}h {m}m {s}s")
     print(f"{'=' * 60}")
 
-    for name in ["synthea_structured", "mtsamples_chunks", "patient_index"]:
+    for name in ["synthea_structured", "mtsamples_knowledge", "patient_index"]:
         try:
             col = chroma_client.get_collection(name)
             print(f"  {name}: {col.count():,} chunks")

@@ -3,13 +3,14 @@
 ClinicalRecall RAG Query Engine.
 
 Two modes:
-  - Patient-scoped: /patient <name>  → searches synthea_structured + mtsamples_chunks
-  - General:        any query        → searches mtsamples_chunks only
+  - Patient-scoped: /patient <name>  → searches synthea_structured + mtsamples_knowledge
+  - General:        any query        → searches mtsamples_knowledge only
 
-Uses Ollama for both embedding (qwen3-embedding:0.6b) and generation (qwen3.5:9b-mlx).
+Uses sentence-transformers (Qwen/Qwen3-Embedding-0.6B) for local embeddings
+and Qwen Cloud API (DashScope) for chat generation.
+Aligned with the ClinIQ backend.
 """
 
-import json
 import os
 import sys
 import textwrap
@@ -17,16 +18,43 @@ from pathlib import Path
 from typing import Optional
 
 import chromadb
-import requests
+import torch
+from dotenv import load_dotenv
+from openai import OpenAI
+from sentence_transformers import SentenceTransformer
 
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-EMBEDDING_MODEL = "qwen3-embedding:0.6b"
-CHAT_MODEL = "qwen3.5:9b-mlx"
+load_dotenv()
+
+QWEN_API_KEY = os.getenv("QWEN_API_KEY", "")
+QWEN_API_URL = os.getenv("QWEN_API_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
+CHAT_MODEL = os.getenv("CHAT_MODEL", "qwen-max")
+EMBED_MODEL_NAME = "Qwen/Qwen3-Embedding-0.6B"
 CHROMA_PATH = Path("chroma_db")
 TOP_K_PATIENT = 20
 TOP_K_KNOWLEDGE = 10
 
 chroma_client = chromadb.PersistentClient(path=str(CHROMA_PATH))
+llm_client = OpenAI(base_url=QWEN_API_URL, api_key=QWEN_API_KEY or "ollama")
+
+_embed_model: Optional[SentenceTransformer] = None
+
+
+def _get_embed_model() -> SentenceTransformer:
+    global _embed_model
+    if _embed_model is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Loading embedding model {EMBED_MODEL_NAME} on {device}...")
+        _embed_model = SentenceTransformer(
+            EMBED_MODEL_NAME,
+            device=device,
+            model_kwargs={"dtype": torch.float16, "attn_implementation": "sdpa"}
+            if device == "cuda" else {},
+        )
+        _embed_model.max_seq_length = 1024
+        dim = _embed_model.get_sentence_embedding_dimension()
+        print(f"  Loaded. Dimension: {dim}")
+    return _embed_model
+
 
 SYSTEM_PROMPT = textwrap.dedent("""\
     You are ClinicalRecall, an AI clinical decision support assistant.
@@ -52,34 +80,23 @@ PATIENT_SYSTEM_PROMPT = textwrap.dedent("""\
 
 
 def embed_query(text: str) -> list[float]:
-    resp = requests.post(
-        f"{OLLAMA_BASE_URL}/api/embed",
-        json={"model": EMBEDDING_MODEL, "input": [text]},
-        timeout=60,
-    )
-    resp.raise_for_status()
-    return resp.json()["embeddings"][0]
+    model = _get_embed_model()
+    vec = model.encode(text, normalize_embeddings=True, prompt_name="query").tolist()
+    return vec
 
 
 def generate(prompt: str, system: str = SYSTEM_PROMPT) -> str:
-    resp = requests.post(
-        f"{OLLAMA_BASE_URL}/api/chat",
-        json={
-            "model": CHAT_MODEL,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-        },
-        timeout=120,
+    response = llm_client.chat.completions.create(
+        model=CHAT_MODEL,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
     )
-    resp.raise_for_status()
-    return resp.json()["message"]["content"]
+    return response.choices[0].message.content.strip()
 
 
 def find_patient(name_query: str) -> Optional[dict]:
-    """Fuzzy search patient_index by name. Returns best match or None."""
     col = chroma_client.get_collection("patient_index")
     embedding = embed_query(name_query)
     results = col.query(query_embeddings=[embedding], n_results=5)
@@ -95,7 +112,6 @@ def find_patient(name_query: str) -> Optional[dict]:
 
 
 def retrieve_patient_context(patient_id: str, query: str) -> list[dict]:
-    """Search synthea_structured filtered by patient_id."""
     col = chroma_client.get_collection("synthea_structured")
     embedding = embed_query(query)
     results = col.query(
@@ -111,11 +127,7 @@ def retrieve_patient_context(patient_id: str, query: str) -> list[dict]:
 
 
 def retrieve_knowledge(query: str, k: int = TOP_K_KNOWLEDGE) -> list[dict]:
-    """Search mtsamples_chunks for general clinical knowledge."""
-    try:
-        col = chroma_client.get_collection("mtsamples_chunks")
-    except Exception:
-        col = chroma_client.get_collection("mtsamples_knowledge")
+    col = chroma_client.get_collection("mtsamples_knowledge")
     embedding = embed_query(query)
     results = col.query(query_embeddings=[embedding], n_results=k)
     chunks = []
@@ -160,19 +172,20 @@ def build_general_prompt(query: str, context: str) -> str:
 
 def print_banner():
     print()
-    print("╔══════════════════════════════════════════════════════════╗")
-    print("║          ClinicalRecall — RAG Query Engine              ║")
-    print("╠══════════════════════════════════════════════════════════╣")
-    print("║  Commands:                                              ║")
-    print("║    /patient <name>  —  switch to patient-scoped mode    ║")
-    print("║    /clear            —  switch to general mode          ║")
-    print("║    /quit             —  exit                            ║")
-    print("║    /help             —  show this help                  ║")
-    print("╚══════════════════════════════════════════════════════════╝")
+    print("\u2554" + "\u2550" * 58 + "\u2557")
+    print("\u2551          ClinicalRecall \u2014 RAG Query Engine              \u2551")
+    print("\u2560" + "\u2550" * 58 + "\u2563")
+    print("\u2551  Commands:                                              \u2551")
+    print("\u2551    /patient <name>  \u2014  switch to patient-scoped mode    \u2551")
+    print("\u2551    /clear            \u2014  switch to general mode          \u2551")
+    print("\u2551    /quit             \u2014  exit                            \u2551")
+    print("\u2551    /help             \u2014  show this help                  \u2551")
+    print("\u255a" + "\u2550" * 58 + "\u255d")
     print()
 
 
 def main():
+    _get_embed_model()
     print_banner()
 
     current_patient: Optional[dict] = None

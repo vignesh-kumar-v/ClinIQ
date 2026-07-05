@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ClinIQ</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     :root { --brand: #2563eb; }
     body { font-family: system-ui, sans-serif; background: #f1f5f9; }
@@ -14,6 +15,22 @@
     #chat-messages { scrollbar-width: thin; }
     .bubble-user { background: #2563eb; color: white; border-radius: 1rem 1rem 0.25rem 1rem; }
     .bubble-ai   { background: white; color: #1e293b; border-radius: 1rem 1rem 1rem 0.25rem; border: 1px solid #e2e8f0; }
+    .bubble-ai h1, .bubble-ai h2, .bubble-ai h3 { font-weight: 700; margin: 0.75em 0 0.25em; line-height: 1.3; }
+    .bubble-ai h1 { font-size: 1.2em; }
+    .bubble-ai h2 { font-size: 1.1em; }
+    .bubble-ai h3 { font-size: 1em; }
+    .bubble-ai ul, .bubble-ai ol { margin: 0.25em 0; padding-left: 1.5em; }
+    .bubble-ai li { margin: 0.15em 0; }
+    .bubble-ai p { margin: 0.25em 0; }
+    .bubble-ai strong { font-weight: 700; color: #0f172a; }
+    .bubble-ai code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; font-size: 0.9em; }
+    .bubble-ai pre { background: #1e293b; color: #e2e8f0; padding: 0.75em 1em; border-radius: 6px; overflow-x: auto; margin: 0.5em 0; font-size: 0.85em; }
+    .bubble-ai pre code { background: none; padding: 0; color: inherit; }
+    .bubble-ai hr { border: none; border-top: 1px solid #e2e8f0; margin: 0.75em 0; }
+    .bubble-ai blockquote { border-left: 3px solid #2563eb; padding-left: 0.75em; margin: 0.5em 0; color: #475569; }
+    .bubble-ai table { border-collapse: collapse; margin: 0.5em 0; font-size: 0.85em; }
+    .bubble-ai th, .bubble-ai td { border: 1px solid #e2e8f0; padding: 4px 8px; text-align: left; }
+    .bubble-ai th { background: #f8fafc; font-weight: 600; }
     .score-badge { font-size: 0.7rem; background: #dbeafe; color: #1d4ed8; padding: 1px 6px; border-radius: 99px; }
     .tag { font-size: 0.7rem; background: #f1f5f9; color: #475569; padding: 2px 8px; border-radius: 99px; border: 1px solid #e2e8f0; }
   </style>
@@ -431,7 +448,11 @@ function appendBubble(text, role) {
   wrap.className = `flex ${role === 'user' ? 'justify-end' : 'justify-start'}`;
   const bubble = document.createElement('div');
   bubble.className = `max-w-xs md:max-w-md lg:max-w-lg px-4 py-2.5 text-sm ${role === 'user' ? 'bubble-user' : 'bubble-ai'}`;
-  bubble.textContent = text;
+  if (role === 'ai') {
+    bubble.innerHTML = marked.parse(text);
+  } else {
+    bubble.textContent = text;
+  }
   wrap.appendChild(bubble);
   const container = document.getElementById('chat-messages');
   container.appendChild(wrap);

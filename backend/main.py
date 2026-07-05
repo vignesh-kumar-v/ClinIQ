@@ -1,7 +1,7 @@
 import logging
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from routers import patients, query, notes, medications, activity, ingest
@@ -44,7 +44,13 @@ app.add_middleware(
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except HTTPException as exc:
+        response = JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+        )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"

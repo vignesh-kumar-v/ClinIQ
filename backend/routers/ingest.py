@@ -1,7 +1,8 @@
 import json
+import os
 import asyncio
 from uuid import uuid4
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
 from models import IngestSyntheaRequest, IngestMTSamplesRequest
 from config import synthea_col, mtsamples_col, EMBED_BATCH_SIZE
@@ -11,12 +12,24 @@ from store import job_store
 
 router = APIRouter()
 
+_ALLOWED_INGEST_DIR = os.path.abspath(os.getenv("INGEST_DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "data")))
+
+
+def _validate_ingest_path(file_path: str) -> str:
+    resolved = os.path.abspath(file_path)
+    if not resolved.startswith(_ALLOWED_INGEST_DIR):
+        raise HTTPException(status_code=403, detail="File path is outside the allowed data directory.")
+    if not os.path.isfile(resolved):
+        raise HTTPException(status_code=404, detail="File not found.")
+    return resolved
+
 
 @router.post("/ingest/synthea")
 async def ingest_synthea(body: IngestSyntheaRequest, background_tasks: BackgroundTasks):
+    safe_path = _validate_ingest_path(body.file_path)
     job_id = str(uuid4())
     job_store.init(job_id)
-    background_tasks.add_task(run_synthea_ingestion, job_id, body.file_path)
+    background_tasks.add_task(run_synthea_ingestion, job_id, safe_path)
     return {"job_id": job_id, "status": "queued"}
 
 

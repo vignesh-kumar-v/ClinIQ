@@ -1,5 +1,6 @@
 from config import llm_client, INTENT_MODEL
 from logger import get_logger
+from services.sanitizer import sanitize
 
 log = get_logger("intent")
 
@@ -13,6 +14,7 @@ Input: {text}"""
 
 
 async def classify_intent(text: str) -> str:
+    text = sanitize(text)
     log.debug(f"Classifying intent for: {text[:80]!r}")
     try:
         response = llm_client.chat.completions.create(

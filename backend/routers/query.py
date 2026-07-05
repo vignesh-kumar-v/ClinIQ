@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from models import QueryRequest, QueryResponse
 from services import intent, extractor, embedder, retriever, llm, writer
+from services.sanitizer import sanitize
 from logger import get_logger
 
 log = get_logger("router.query")
@@ -15,51 +16,52 @@ async def get_chat_history(patient_id: str):
 
 @router.post("/patients/{patient_id}/query", response_model=QueryResponse)
 async def query_patient(patient_id: str, body: QueryRequest):
-    log.info(f"Query patient={patient_id} session={body.session_id} message={body.message[:80]!r}")
+    message = sanitize(body.message)
+    log.info(f"Query patient={patient_id} session={body.session_id} message={message[:80]!r}")
 
-    detected_intent = await intent.classify_intent(body.message)
+    detected_intent = await intent.classify_intent(message)
 
     if detected_intent == "out_of_scope":
         log.info(f"Out-of-scope query blocked for patient={patient_id}")
         refusal = "I'm a clinical memory assistant. I can only help with healthcare-related questions about patient records, medical knowledge, and clinical documentation. Please ask a clinical question."
-        await writer.save_chat_turn(patient_id, body.session_id, "user", body.message)
+        await writer.save_chat_turn(patient_id, body.session_id, "user", message)
         await writer.save_chat_turn(patient_id, body.session_id, "assistant", refusal)
         return QueryResponse(answer=refusal, intent="out_of_scope", sources=[])
 
     if detected_intent == "write":
         log.info(f"Write path triggered for patient={patient_id}")
-        payload = await extractor.extract_write_payload(body.message)
+        payload = await extractor.extract_write_payload(message)
         patient_name = _get_patient_name(patient_id)
-        await _dispatch_write(payload, patient_id, patient_name, body.message)
-        await writer.log_activity(patient_id, payload.get("action", "write"), body.message[:80])
+        await _dispatch_write(payload, patient_id, patient_name, message)
+        await writer.log_activity(patient_id, payload.get("action", "write"), message[:80])
         confirmation = f"Recorded: {payload.get('action', 'update')} for patient."
-        await writer.save_chat_turn(patient_id, body.session_id, "user", body.message)
+        await writer.save_chat_turn(patient_id, body.session_id, "user", message)
         await writer.save_chat_turn(patient_id, body.session_id, "assistant", confirmation)
         return QueryResponse(answer=confirmation, intent="write", sources=[])
 
     if detected_intent == "read":
         log.info(f"Read path triggered for patient={patient_id}")
         history = await writer.get_chat_history(patient_id)
-        query_vector = embedder.embed(body.message, is_query=True)
+        query_vector = embedder.embed(message, is_query=True)
         context = await retriever.search(query_vector, patient_id)
-        answer = await llm.chat(context, history, body.message)
-        await writer.save_chat_turn(patient_id, body.session_id, "user", body.message)
+        answer = await llm.chat(context, history, message)
+        await writer.save_chat_turn(patient_id, body.session_id, "user", message)
         await writer.save_chat_turn(patient_id, body.session_id, "assistant", answer)
         sources = [c.get("source", "") for c in context]
         return QueryResponse(answer=answer, intent="read", sources=sources)
 
     # mixed
     log.info(f"Mixed path triggered for patient={patient_id}")
-    payload = await extractor.extract_write_payload(body.message)
+    payload = await extractor.extract_write_payload(message)
     patient_name = _get_patient_name(patient_id)
-    await _dispatch_write(payload, patient_id, patient_name, body.message)
-    await writer.log_activity(patient_id, payload.get("action", "write"), body.message[:80])
+    await _dispatch_write(payload, patient_id, patient_name, message)
+    await writer.log_activity(patient_id, payload.get("action", "write"), message[:80])
 
     history = await writer.get_chat_history(patient_id)
-    query_vector = embedder.embed(body.message, is_query=True)
+    query_vector = embedder.embed(message, is_query=True)
     context = await retriever.search(query_vector, patient_id)
-    answer = await llm.chat(context, history, body.message)
-    await writer.save_chat_turn(patient_id, body.session_id, "user", body.message)
+    answer = await llm.chat(context, history, message)
+    await writer.save_chat_turn(patient_id, body.session_id, "user", message)
     await writer.save_chat_turn(patient_id, body.session_id, "assistant", answer)
     sources = [c.get("source", "") for c in context]
     return QueryResponse(answer=answer, intent="mixed", sources=sources)

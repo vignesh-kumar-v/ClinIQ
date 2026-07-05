@@ -2,6 +2,7 @@ import json
 import re
 from config import llm_client, INTENT_MODEL
 from logger import get_logger
+from services.sanitizer import sanitize
 
 log = get_logger("extractor")
 
@@ -18,6 +19,7 @@ Input: {text}"""
 
 
 async def extract_write_payload(text: str) -> dict:
+    text = sanitize(text)
     log.debug(f"Extracting write payload from: {text[:80]!r}")
     try:
         response = llm_client.chat.completions.create(

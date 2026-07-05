@@ -25,7 +25,6 @@ Prerequisites:
 import argparse
 import base64
 import json
-import os
 import re
 import sqlite3
 import sys
@@ -42,7 +41,7 @@ from sentence_transformers import SentenceTransformer
 # ── Configuration ──────────────────────────────────────────────────────────
 
 EMBED_MODEL_NAME = "Qwen/Qwen3-Embedding-0.6B"
-BATCH_SIZE = 100
+BATCH_SIZE = 32
 CHROMA_PATH = Path("chroma_db")
 PROGRESS_DIR = Path("chroma_ingestion_progress")
 FHIR_DIR = Path("data/fhir")

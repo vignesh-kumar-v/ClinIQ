@@ -1,6 +1,6 @@
 import asyncio
 import json
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from models import QueryRequest, QueryResponse
 from services import intent, extractor, embedder, retriever, llm, writer
@@ -18,7 +18,7 @@ async def get_chat_history(patient_id: str):
 
 
 @router.post("/patients/{patient_id}/query", response_model=QueryResponse)
-async def query_patient(patient_id: str, body: QueryRequest):
+async def query_patient(patient_id: str, body: QueryRequest, background_tasks: BackgroundTasks):
     message = sanitize(body.message)
     log.info(f"Query patient={patient_id} session={body.session_id} message={message[:80]!r}")
 
@@ -40,7 +40,7 @@ async def query_patient(patient_id: str, body: QueryRequest):
         log.info(f"Write path triggered for patient={patient_id}")
         payload = await extractor.extract_write_payload(message)
         patient_name = _get_patient_name(patient_id)
-        await _dispatch_write(payload, patient_id, patient_name, message)
+        background_tasks.add_task(_dispatch_write, payload, patient_id, patient_name, message)
         await writer.log_activity(patient_id, payload.get("action", "write"), message[:80])
         confirmation = f"Recorded: {payload.get('action', 'update')} for patient."
         await writer.save_chat_turn(patient_id, body.session_id, "user", message)
@@ -63,7 +63,7 @@ async def query_patient(patient_id: str, body: QueryRequest):
     log.info(f"Mixed path triggered for patient={patient_id}")
     payload = await extractor.extract_write_payload(message)
     patient_name = _get_patient_name(patient_id)
-    await _dispatch_write(payload, patient_id, patient_name, message)
+    background_tasks.add_task(_dispatch_write, payload, patient_id, patient_name, message)
     await writer.log_activity(patient_id, payload.get("action", "write"), message[:80])
 
     history = await writer.get_chat_history(patient_id)
@@ -76,7 +76,7 @@ async def query_patient(patient_id: str, body: QueryRequest):
 
 
 @router.post("/patients/{patient_id}/query/stream")
-async def query_patient_stream(patient_id: str, body: QueryRequest):
+async def query_patient_stream(patient_id: str, body: QueryRequest, background_tasks: BackgroundTasks):
     message = sanitize(body.message)
     log.info(f"Stream query patient={patient_id} session={body.session_id} message={message[:80]!r}")
 
@@ -99,7 +99,7 @@ async def query_patient_stream(patient_id: str, body: QueryRequest):
         embed_task.cancel()
         payload = await extractor.extract_write_payload(message)
         patient_name = _get_patient_name(patient_id)
-        await _dispatch_write(payload, patient_id, patient_name, message)
+        background_tasks.add_task(_dispatch_write, payload, patient_id, patient_name, message)
         await writer.log_activity(patient_id, payload.get("action", "write"), message[:80])
         confirmation = f"Recorded: {payload.get('action', 'update')} for patient."
         await writer.save_chat_turn(patient_id, body.session_id, "user", message)
@@ -116,7 +116,7 @@ async def query_patient_stream(patient_id: str, body: QueryRequest):
     if detected_intent == "mixed":
         payload = await extractor.extract_write_payload(message)
         patient_name = _get_patient_name(patient_id)
-        await _dispatch_write(payload, patient_id, patient_name, message)
+        background_tasks.add_task(_dispatch_write, payload, patient_id, patient_name, message)
         await writer.log_activity(patient_id, payload.get("action", "write"), message[:80])
 
     async def token_stream():

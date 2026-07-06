@@ -451,193 +451,68 @@ def step_normalize_sections():
 # ── 1. Synthea FHIR + Clinician Notes ─────────────────────────────────────
 
 def parse_synthea_bundle(filepath: Path) -> tuple[Optional[str], list[dict], Optional[dict]]:
+    """Parse FHIR bundle using the enriched parser from backend/ingestion."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "synthea_parser",
+        Path(__file__).resolve().parent.parent / "backend" / "ingestion" / "synthea_parser.py",
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
     with open(filepath) as f:
         bundle = json.load(f)
 
-    entries = bundle.get("entry", [])
-    patient_id = None
-    patient_name = ""
+    enriched_chunks = mod.parse_patient(bundle)
+    if not enriched_chunks:
+        return None, [], None
+
+    patient_id = enriched_chunks[0]["metadata"]["patient_id"]
+    patient_name = enriched_chunks[0]["metadata"]["patient_name"]
+
+    chunks = []
+    for c in enriched_chunks:
+        chunks.append({
+            "text": c["text"],
+            "metadata": {
+                **c["metadata"],
+                "chunk_id": str(uuid.uuid4()),
+            },
+        })
+
+    # Build summary for patient_index
+    conditions_active = []
+    medications_active = []
+    encounters_list = []
     patient_dob = ""
     patient_gender = ""
     patient_deceased = None
-    chunks = []
 
-    for entry in entries:
-        resource = entry.get("resource", {})
-        rt = resource.get("resourceType")
-        if rt == "Patient":
-            patient_id = resource["id"]
-            patient_name = get_patient_name(resource)
-            patient_dob = resource.get("birthDate", "")
-            patient_gender = resource.get("gender", "")
-            patient_deceased = resource.get("deceasedDateTime")
-            age = calc_age(patient_dob, patient_deceased)
-            status = "deceased" if patient_deceased else "alive"
-            chunks.append({
-                "text": f"Patient {patient_name}, DOB {patient_dob}, Gender {patient_gender}, Age {age}, Status {status}",
-                "metadata": {
-                    "patient_id": patient_id,
-                    "patient_name": patient_name,
-                    "data_type": "demographics",
-                    "source": "synthea",
-                    "date": patient_dob,
-                    "chunk_id": str(uuid.uuid4()),
-                },
-            })
-
-    if not patient_id:
-        return None, [], None
-
-    conditions_active = []
-    conditions_inactive = []
-    medications_active = []
-    medications_past = []
-    encounters_list = []
-
-    for entry in entries:
-        resource = entry.get("resource", {})
-        rt = resource.get("resourceType")
-
-        if rt == "Condition":
-            code = resource.get("code", {}).get("coding", [{}])[0].get("display", "")
-            onset = resource.get("onsetDateTime", "")
-            clinical_status = resource.get("clinicalStatus", {}).get("coding", [{}])[0].get("code", "")
-            if code:
-                if clinical_status in ("active", "recurrence", "relapse"):
-                    conditions_active.append(f"{code} (onset {onset})")
-                else:
-                    conditions_inactive.append(f"{code} (onset {onset}, status {clinical_status})")
-
-        elif rt == "MedicationRequest":
-            med = resource.get("medicationCodeableConcept", {}).get("coding", [{}])[0].get("display", "")
-            authored = resource.get("authoredOn", "")
-            dosage = ""
-            if resource.get("dosageInstruction"):
-                dosage = resource["dosageInstruction"][0].get("text", "")
-            status = resource.get("status", "")
-            if med:
-                entry_text = f"{med}, dosage: {dosage}, prescribed {authored}, status {status}"
-                if status == "active":
-                    medications_active.append(entry_text)
-                else:
-                    medications_past.append(entry_text)
-
-        elif rt == "Observation":
-            code = resource.get("code", {}).get("coding", [{}])[0].get("display", "")
-            vq = resource.get("valueQuantity", {})
-            value = vq.get("value")
-            unit = vq.get("unit", "")
-            effective = resource.get("effectiveDateTime", "")
-            if code and value is not None:
-                chunks.append({
-                    "text": f"Lab: {code} = {value} {unit} on {effective}",
-                    "metadata": {
-                        "patient_id": patient_id,
-                        "patient_name": patient_name,
-                        "data_type": "observation",
-                        "source": "synthea",
-                        "date": effective,
-                        "chunk_id": str(uuid.uuid4()),
-                    },
-                })
-
-        elif rt == "Encounter":
-            enc_type = resource.get("type", [{}])[0].get("coding", [{}])[0].get("display", "")
-            period = resource.get("period", {})
-            start = period.get("start", "")
-            reason = ""
-            if resource.get("reasonCode"):
-                reason = resource["reasonCode"][0].get("coding", [{}])[0].get("display", "")
-            if enc_type:
-                encounters_list.append(f"{enc_type} ({reason}) on {start}")
-
-        elif rt == "DocumentReference":
-            doc_text = decode_docref(resource)
-            if doc_text:
-                doc_date = resource.get("date", "")
-                chunks.append({
-                    "text": clean(doc_text),
-                    "metadata": {
-                        "patient_id": patient_id,
-                        "patient_name": patient_name,
-                        "data_type": "document_reference",
-                        "source": "synthea",
-                        "date": doc_date,
-                        "chunk_id": str(uuid.uuid4()),
-                    },
-                })
-
-    if conditions_active:
-        chunks.append({
-            "text": f"Active conditions of patient {patient_name}:\n- " + "\n- ".join(conditions_active),
-            "metadata": {
-                "patient_id": patient_id,
-                "patient_name": patient_name,
-                "data_type": "condition",
-                "source": "synthea",
-                "date": "",
-                "chunk_id": str(uuid.uuid4()),
-            },
-        })
-    if conditions_inactive:
-        chunks.append({
-            "text": f"Resolved/inactive conditions of patient {patient_name}:\n- " + "\n- ".join(conditions_inactive),
-            "metadata": {
-                "patient_id": patient_id,
-                "patient_name": patient_name,
-                "data_type": "condition",
-                "source": "synthea",
-                "date": "",
-                "chunk_id": str(uuid.uuid4()),
-            },
-        })
-    if medications_active:
-        chunks.append({
-            "text": f"Current medications of patient {patient_name}:\n- " + "\n- ".join(medications_active),
-            "metadata": {
-                "patient_id": patient_id,
-                "patient_name": patient_name,
-                "data_type": "medication",
-                "source": "synthea",
-                "date": "",
-                "chunk_id": str(uuid.uuid4()),
-            },
-        })
-    if medications_past:
-        chunks.append({
-            "text": f"Past medications of patient {patient_name}:\n- " + "\n- ".join(medications_past),
-            "metadata": {
-                "patient_id": patient_id,
-                "patient_name": patient_name,
-                "data_type": "medication",
-                "source": "synthea",
-                "date": "",
-                "chunk_id": str(uuid.uuid4()),
-            },
-        })
-    if encounters_list:
-        chunks.append({
-            "text": f"Encounters for patient {patient_name} (last 20):\n- " + "\n- ".join(encounters_list[-20:]),
-            "metadata": {
-                "patient_id": patient_id,
-                "patient_name": patient_name,
-                "data_type": "encounter",
-                "source": "synthea",
-                "date": "",
-                "chunk_id": str(uuid.uuid4()),
-            },
-        })
+    for c in enriched_chunks:
+        dt = c["metadata"].get("data_type", "")
+        if dt == "demographics":
+            patient_dob = c["metadata"].get("date", "")
+            # Extract gender from text: "Patient: Name, 60y, male"
+            text = c["text"]
+            parts = text.split(", ")
+            if len(parts) >= 3:
+                patient_gender = parts[2]
+        elif dt == "condition":
+            conditions_active.append(c["text"])
+        elif dt == "medication":
+            medications_active.append(c["text"])
+        elif dt == "encounter":
+            encounters_list.append(c["text"])
 
     last_visit = encounters_list[-1].split(" on ")[-1] if encounters_list else ""
-    condition_summary = ", ".join(c.split(" (")[0] for c in conditions_active[:5])
 
     summary = {
         "patient_id": patient_id,
         "patient_name": patient_name,
         "age": calc_age(patient_dob, patient_deceased),
         "gender": patient_gender,
-        "active_conditions": ", ".join(c.split(" (")[0] for c in conditions_active),
-        "current_medications": ", ".join(m.split(",")[0] for m in medications_active),
+        "active_conditions": ", ".join(c.split(" (")[0] for c in conditions_active[:5]),
+        "current_medications": ", ".join(m.split(",")[0] for m in medications_active[:5]),
         "last_encounter_date": last_visit,
         "chunk_count": len(chunks),
     }

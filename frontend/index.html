@@ -53,7 +53,43 @@
     class="ml-auto bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition">
     + New Patient
   </button>
+  <span id="user-display" class="text-sm text-slate-500 hidden"></span>
+  <button id="logout-btn" onclick="logout()" class="hidden text-sm text-slate-500 hover:text-red-500 transition">Logout</button>
 </header>
+
+<!-- Auth overlay -->
+<div id="auth-overlay" class="fixed inset-0 bg-white z-50 flex items-center justify-center">
+  <div class="w-full max-w-sm bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
+    <div class="flex items-center gap-2 mb-6">
+      <svg class="w-7 h-7 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+      </svg>
+      <span class="text-xl font-bold text-blue-700">ClinIQ</span>
+    </div>
+    <div id="auth-tabs" class="flex gap-4 mb-6 text-sm">
+      <button class="tab-active pb-1" onclick="switchAuthTab('login')">Login</button>
+      <button class="tab-inactive pb-1" onclick="switchAuthTab('register')">Register</button>
+    </div>
+    <form id="login-form" onsubmit="handleLogin(event)" class="flex flex-col gap-3">
+      <input id="login-email" type="email" placeholder="Email" required
+        class="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+      <input id="login-password" type="password" placeholder="Password" required
+        class="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+      <p id="login-error" class="text-xs text-red-500 hidden"></p>
+      <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 rounded-lg transition">Login</button>
+    </form>
+    <form id="register-form" onsubmit="handleRegister(event)" class="flex flex-col gap-3 hidden">
+      <input id="reg-name" type="text" placeholder="Name (optional)"
+        class="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+      <input id="reg-email" type="email" placeholder="Email" required
+        class="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+      <input id="reg-password" type="password" placeholder="Password (min 6 chars)" required minlength="6"
+        class="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+      <p id="reg-error" class="text-xs text-red-500 hidden"></p>
+      <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 rounded-lg transition">Register</button>
+    </form>
+  </div>
+</div>
 
 <!-- Main layout -->
 <div class="flex flex-1 overflow-hidden">
@@ -234,13 +270,121 @@
 <div id="toast" class="hidden fixed bottom-6 right-6 px-4 py-3 rounded-xl text-sm font-medium shadow-lg z-50 transition-all"></div>
 
 <script>
-const API = 'http://localhost:8000/api';
+const API = '/api';
 let currentPatient = null;
 let currentTab = 'overview';
 let chatSession = null;
 let searchDebounce = null;
+let authToken = localStorage.getItem('cliniq_token') || '';
+let authUser = null;
+
+function authHeaders() {
+  return authToken ? { 'Authorization': 'Bearer ' + authToken, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+}
+
+async function apiFetch(url, opts = {}) {
+  opts.headers = { ...authHeaders(), ...(opts.headers || {}) };
+  const r = await fetch(url, opts);
+  if (r.status === 401) {
+    localStorage.removeItem('cliniq_token');
+    authToken = '';
+    authUser = null;
+    showAuthOverlay();
+    throw new Error('Unauthorized');
+  }
+  return r;
+}
+
+function showAuthOverlay() {
+  document.getElementById('auth-overlay').classList.remove('hidden');
+  document.getElementById('user-display').classList.add('hidden');
+  document.getElementById('logout-btn').classList.add('hidden');
+}
+
+function hideAuthOverlay() {
+  document.getElementById('auth-overlay').classList.add('hidden');
+  document.getElementById('user-display').classList.remove('hidden');
+  document.getElementById('logout-btn').classList.remove('hidden');
+}
+
+function switchAuthTab(tab) {
+  const tabs = document.getElementById('auth-tabs').children;
+  tabs[0].className = tab === 'login' ? 'tab-active pb-1' : 'tab-inactive pb-1';
+  tabs[1].className = tab === 'register' ? 'tab-active pb-1' : 'tab-inactive pb-1';
+  document.getElementById('login-form').classList.toggle('hidden', tab !== 'login');
+  document.getElementById('register-form').classList.toggle('hidden', tab !== 'register');
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const email = document.getElementById('login-email').value;
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  try {
+    const r = await fetch(API + '/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const d = await r.json();
+    if (!r.ok) { errEl.textContent = d.detail; errEl.classList.remove('hidden'); return; }
+    authToken = d.access_token;
+    authUser = d;
+    localStorage.setItem('cliniq_token', authToken);
+    document.getElementById('user-display').textContent = d.email;
+    hideAuthOverlay();
+    loadPatients();
+  } catch (ex) {
+    errEl.textContent = 'Connection error';
+    errEl.classList.remove('hidden');
+  }
+}
+
+async function handleRegister(e) {
+  e.preventDefault();
+  const name = document.getElementById('reg-name').value;
+  const email = document.getElementById('reg-email').value;
+  const password = document.getElementById('reg-password').value;
+  const errEl = document.getElementById('reg-error');
+  try {
+    const r = await fetch(API + '/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, name }),
+    });
+    const d = await r.json();
+    if (!r.ok) { errEl.textContent = d.detail; errEl.classList.remove('hidden'); return; }
+    authToken = d.access_token;
+    authUser = d;
+    localStorage.setItem('cliniq_token', authToken);
+    document.getElementById('user-display').textContent = d.email;
+    hideAuthOverlay();
+    loadPatients();
+  } catch (ex) {
+    errEl.textContent = 'Connection error';
+    errEl.classList.remove('hidden');
+  }
+}
+
+function logout() {
+  localStorage.removeItem('cliniq_token');
+  authToken = '';
+  authUser = null;
+  currentPatient = null;
+  document.getElementById('detail-panel').classList.add('hidden');
+  document.getElementById('empty-state').classList.remove('hidden');
+  document.getElementById('patient-list').innerHTML = '';
+  showAuthOverlay();
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────
+if (authToken) {
+  document.getElementById('user-display').textContent = 'Authenticated';
+  hideAuthOverlay();
+} else {
+  showAuthOverlay();
+}
+
 document.getElementById('search-input').addEventListener('input', e => {
   clearTimeout(searchDebounce);
   searchDebounce = setTimeout(() => loadPatients(e.target.value.trim()), 300);
@@ -249,7 +393,7 @@ document.getElementById('chat-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') sendChat();
 });
 
-loadPatients();
+if (authToken) loadPatients();
 
 // ── Patient list ──────────────────────────────────────────────────────────
 async function loadPatients(q = '') {
@@ -258,13 +402,13 @@ async function loadPatients(q = '') {
   try {
     let data;
     if (q && isSemantic) {
-      const r = await fetch(`${API}/patients/search?q=${encodeURIComponent(q)}&limit=30`);
+      const r = await apiFetch(`${API}/patients/search?q=${encodeURIComponent(q)}&limit=30`);
       const j = await r.json();
       data = { patients: j.results, total: j.results.length };
     } else {
       const params = new URLSearchParams({ limit: 100, sort_by: 'patient_name', order: 'asc' });
       if (q) params.set('q', q);
-      const r = await fetch(`${API}/patients?${params}`);
+      const r = await apiFetch(`${API}/patients?${params}`);
       data = await r.json();
     }
     renderPatientList(data.patients || [], data.total || 0, isSemantic && q);
@@ -300,7 +444,7 @@ document.getElementById('semantic-toggle').addEventListener('change', () => {
 // ── Select patient ────────────────────────────────────────────────────────
 async function selectPatient(id) {
   try {
-    const r = await fetch(`${API}/patients/${id}`);
+    const r = await apiFetch(`${API}/patients/${id}`);
     const data = await r.json();
     currentPatient = data;
     chatSession = 'session-' + Date.now();
@@ -365,7 +509,7 @@ function renderAllTabs(data) {
 async function loadActivity() {
   if (!currentPatient) return;
   try {
-    const r = await fetch(`${API}/patients/${currentPatient.patient_id}/activity?limit=50`);
+    const r = await apiFetch(`${API}/patients/${currentPatient.patient_id}/activity?limit=50`);
     const data = await r.json();
     document.getElementById('activity-list').innerHTML =
       (data.entries || []).map(e => `
@@ -395,7 +539,7 @@ function switchTab(name) {
 // ── Chat history ──────────────────────────────────────────────────────────
 async function loadChatHistory(patientId) {
   try {
-    const r = await fetch(`${API}/patients/${patientId}/chat-history`);
+    const r = await apiFetch(`${API}/patients/${patientId}/chat-history`);
     const data = await r.json();
     const history = data.history || [];
     if (!history.length) return;
@@ -426,7 +570,7 @@ async function sendChat() {
   try {
     const r = await fetch(`${API}/patients/${currentPatient.patient_id}/query/stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({ message: msg, session_id: chatSession }),
     });
     const reader = r.body.getReader();
@@ -451,7 +595,7 @@ async function sendChat() {
           if (data.done) {
             if (data.intent === 'write' || data.intent === 'mixed') {
               showToast('Record updated', 'success');
-              const pr = await fetch(`${API}/patients/${currentPatient.patient_id}`);
+              const pr = await apiFetch(`${API}/patients/${currentPatient.patient_id}`);
               const pd = await pr.json();
               currentPatient = pd;
               renderAllTabs(pd);
@@ -498,7 +642,7 @@ async function createPatient() {
   const notes = document.getElementById('np-notes').value.trim();
 
   try {
-    const r = await fetch(`${API}/patients/new`, {
+    const r = await apiFetch(`${API}/patients/new`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, age, gender, conditions, medications, notes }),
@@ -522,7 +666,7 @@ async function saveNote() {
   const note_type = document.getElementById('note-type').value;
   if (!text) { showToast('Note text required', 'error'); return; }
   try {
-    const r = await fetch(`${API}/patients/${currentPatient.patient_id}/note`, {
+    const r = await apiFetch(`${API}/patients/${currentPatient.patient_id}/note`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, note_type }),
@@ -532,7 +676,7 @@ async function saveNote() {
       showToast('Note saved', 'success');
       closeModal('modal-add-note');
       document.getElementById('note-text').value = '';
-      const pr = await fetch(`${API}/patients/${currentPatient.patient_id}`);
+      const pr = await apiFetch(`${API}/patients/${currentPatient.patient_id}`);
       const pd = await pr.json();
       currentPatient = pd;
       renderAllTabs(pd);
@@ -548,7 +692,7 @@ async function updateMedication() {
   const value = document.getElementById('med-value').value.trim();
   if (!drug || !value) { showToast('Drug and value required', 'error'); return; }
   try {
-    const r = await fetch(`${API}/patients/${currentPatient.patient_id}/medication`, {
+    const r = await apiFetch(`${API}/patients/${currentPatient.patient_id}/medication`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ drug, field, value }),
@@ -559,7 +703,7 @@ async function updateMedication() {
       closeModal('modal-update-med');
       document.getElementById('med-drug').value = '';
       document.getElementById('med-value').value = '';
-      const pr = await fetch(`${API}/patients/${currentPatient.patient_id}`);
+      const pr = await apiFetch(`${API}/patients/${currentPatient.patient_id}`);
       const pd = await pr.json();
       currentPatient = pd;
       renderAllTabs(pd);

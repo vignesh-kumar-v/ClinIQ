@@ -1,3 +1,4 @@
+import asyncio
 from config import llm_client, CHAT_MODEL, MAX_HISTORY_TURNS
 from logger import get_logger
 
@@ -28,16 +29,20 @@ def _build_messages(context: list[dict], history: list[dict], user_message: str)
     )
 
 
+def _chat_sync(messages: list[dict]) -> str:
+    response = llm_client.chat.completions.create(
+        model=CHAT_MODEL,
+        messages=messages,
+    )
+    return response.choices[0].message.content.strip()
+
+
 async def chat(context: list[dict], history: list[dict], user_message: str) -> str:
     messages = _build_messages(context, history, user_message)
     log.info(f"LLM call model={CHAT_MODEL} context_chunks={len(context)} history_turns={len(history)}")
     log.debug(f"User message: {user_message[:120]!r}")
     try:
-        response = llm_client.chat.completions.create(
-            model=CHAT_MODEL,
-            messages=messages,
-        )
-        answer = response.choices[0].message.content.strip()
+        answer = await asyncio.to_thread(_chat_sync, messages)
         log.info(f"LLM response ({len(answer)} chars): {answer[:120]!r}")
         return answer
     except Exception as e:

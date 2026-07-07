@@ -21,12 +21,12 @@ EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "25"))
 CHROMA_PATH = os.getenv("CHROMA_PATH", "../chroma_db")
 
 # Embeddings handled by sentence_transformers (see services/embedder.py) — no separate client needed
-llm_client = OpenAI(base_url=QWEN_API_URL, api_key=QWEN_API_KEY or "ollama")
+llm_client = OpenAI(base_url=QWEN_API_URL, api_key=QWEN_API_KEY or "ollama", timeout=15.0)
 
 chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
 
 synthea_col = chroma_client.get_collection("synthea_structured")
-mtsamples_col = chroma_client.get_collection("mtsamples_knowledge")
+mtsamples_col = chroma_client.get_or_create_collection("mtsamples_knowledge")
 patient_index_col = chroma_client.get_collection("patient_index")
 chat_history_col = chroma_client.get_or_create_collection("chat_history")
 activity_log_col = chroma_client.get_or_create_collection("activity_log")

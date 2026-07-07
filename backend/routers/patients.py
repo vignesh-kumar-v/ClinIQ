@@ -5,6 +5,7 @@ from fastapi import APIRouter, Query
 from models import NewPatientRequest, NewPatientResponse
 from config import patient_index_col, synthea_col
 from services import embedder, writer
+from services.encounter_enricher import enrich_encounter
 from logger import get_logger
 
 log = get_logger("router.patients")
@@ -148,6 +149,9 @@ async def get_patient(
         dt = (m or {}).get("data_type", "")
         bucket = _BUCKET.get(dt, "observations")
         grouped[bucket].append({"text": doc, "metadata": m})
+
+    for enc in grouped["encounters"]:
+        enc["text"] = enrich_encounter(patient_id, enc["text"], enc.get("metadata", {}))
 
     total = sum(len(v) for v in grouped.values())
     log.info(f"get_patient returned {total} chunks for patient={patient_id}")

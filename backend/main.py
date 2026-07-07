@@ -1,11 +1,14 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from routers import patients, query, notes, medications, activity, ingest
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from routers import patients, query, notes, medications, activity, ingest, auth
 from middleware import RateLimitMiddleware
+from auth_middleware import AuthMiddleware
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -17,7 +20,7 @@ log = logging.getLogger("main")
 
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000",
+    "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,null",
 ).split(",")
 
 
@@ -27,11 +30,19 @@ async def lifespan(app: FastAPI):
     from services.embedder import _get_model
     _get_model()
     log.info("Embedding model ready.")
+    import asyncio
+    asyncio.create_task(_preload_encounter_map())
     yield
+
+
+async def _preload_encounter_map():
+    from services.encounter_enricher import load_encounter_types
+    await asyncio.to_thread(load_encounter_types)
 
 
 app = FastAPI(title="ClinIQ", version="1.0", lifespan=lifespan)
 
+app.add_middleware(AuthMiddleware)
 app.add_middleware(RateLimitMiddleware)
 
 app.add_middleware(
@@ -70,6 +81,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
+app.include_router(auth.router, prefix="/api")
 app.include_router(patients.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
 app.include_router(notes.router, prefix="/api")
@@ -77,7 +89,14 @@ app.include_router(medications.router, prefix="/api")
 app.include_router(activity.router, prefix="/api")
 app.include_router(ingest.router, prefix="/api")
 
+FRONTEND_DIR = os.environ.get("FRONTEND_DIR", os.path.join(os.path.dirname(__file__), "..", "frontend"))
+if os.path.isdir(FRONTEND_DIR):
+    app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+
 
 @app.get("/")
 async def root():
+    index_path = os.path.join(FRONTEND_DIR, "index.html")
+    if os.path.isfile(index_path):
+        return FileResponse(index_path)
     return {"status": "ok", "app": "ClinIQ", "version": "1.0"}

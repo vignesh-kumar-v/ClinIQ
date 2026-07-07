@@ -155,6 +155,9 @@ def parse_patient(fhir_json: dict) -> list[dict]:
 
         elif rtype == "Encounter":
             enc_date = resource.get("period", {}).get("start", "")[:10]
+            enc_id = resource.get("id", "")
+            enc = encounters.get(enc_id, {})
+            enc_type = enc.get("type", "")
             reason_list = resource.get("reasonCode", [])
             reason = ""
             if reason_list:
@@ -164,9 +167,16 @@ def parse_patient(fhir_json: dict) -> list[dict]:
                 )
             if not enc_date:
                 continue
+            label = reason or enc_type or "unspecified"
             chunks.append({
-                "text": f"Visit on {enc_date}, reason: {reason or 'unspecified'}",
-                "metadata": {**base_meta, "data_type": "encounter", "date": enc_date},
+                "text": f"Visit on {enc_date}, reason: {label}",
+                "metadata": {
+                    **base_meta,
+                    "data_type": "encounter",
+                    "date": enc_date,
+                    "encounter_type": enc_type,
+                    "encounter_date": enc_date,
+                },
             })
 
     return chunks

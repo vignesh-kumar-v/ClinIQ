@@ -15,7 +15,7 @@ _buckets: dict[str, list[float]] = defaultdict(list)
 _llm_buckets: dict[str, list[float]] = defaultdict(list)
 _lock = asyncio.Lock()
 
-_LLM_PATHS = {"/api/patients/", "/api/ingest/"}
+_LLM_PATH_SUFFIXES = {"/query", "/query/stream"}
 
 
 def _clean_bucket(bucket: list[float], window: float) -> list[float]:
@@ -28,7 +28,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         client_ip = request.client.host if request.client else "unknown"
         path = request.url.path
 
-        is_llm = any(path.startswith(p) for p in _LLM_PATHS)
+        is_llm = any(path.endswith(s) for s in _LLM_PATH_SUFFIXES)
         max_req = _LLM_MAX_REQUESTS if is_llm else _MAX_REQUESTS
 
         async with _lock:

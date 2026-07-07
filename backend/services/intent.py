@@ -1,3 +1,4 @@
+import asyncio
 from config import llm_client, INTENT_MODEL
 from logger import get_logger
 from services.sanitizer import sanitize
@@ -13,18 +14,22 @@ Return only one word: read, write, mixed, or out_of_scope.
 Input: {text}"""
 
 
+def _classify_sync(text: str) -> str:
+    response = llm_client.chat.completions.create(
+        model=INTENT_MODEL,
+        messages=[{"role": "user", "content": _PROMPT.format(text=text)}],
+        temperature=0,
+    )
+    return response.choices[0].message.content.strip().lower()
+
+
 async def classify_intent(text: str) -> str:
     text = sanitize(text)
     log.debug(f"Classifying intent for: {text[:80]!r}")
     try:
-        response = llm_client.chat.completions.create(
-            model=INTENT_MODEL,
-            messages=[{"role": "user", "content": _PROMPT.format(text=text)}],
-            temperature=0,
-        )
-        result = response.choices[0].message.content.strip().lower()
+        result = await asyncio.to_thread(_classify_sync, text)
         log.info(f"Intent={result!r} for input: {text[:60]!r}")
         return result
     except Exception as e:
-        log.error(f"Intent classification failed: {e}")
-        raise
+        log.warning(f"Intent classification failed, defaulting to read: {e}")
+        return "read"

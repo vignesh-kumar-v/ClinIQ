@@ -6,3 +6,6 @@ python-dotenv
 pydantic
 sentence-transformers
 torch
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart

@@ -4,6 +4,7 @@ data.zip
 
 # ChromaDB
 chroma_db/
+chroma_db_a100/
 chroma/
 *.chroma/
 

@@ -1,0 +1,34 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    container_name: cliniq
+    ports:
+      - "8000:8000"
+    environment:
+      - QWEN_API_KEY=${QWEN_API_KEY:-}
+      - QWEN_API_URL=${QWEN_API_URL:-https://dashscope-intl.aliyuncs.com/compatible-mode/v1}
+      - CHAT_MODEL=${CHAT_MODEL:-qwen-plus}
+      - INTENT_MODEL=${INTENT_MODEL:-qwen-turbo}
+      - CHROMA_PATH=/data/chroma_db
+      - FRONTEND_DIR=/frontend
+      - FHIR_DIR=/app/data/fhir
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8000}
+      - TOP_K_SYNTHEA=${TOP_K_SYNTHEA:-5}
+      - TOP_K_MTSAMPLES=${TOP_K_MTSAMPLES:-3}
+      - MAX_HISTORY_TURNS=${MAX_HISTORY_TURNS:-10}
+      - EMBED_BATCH_SIZE=${EMBED_BATCH_SIZE:-25}
+    volumes:
+      - ./chroma_db_a100:/data/chroma_db
+      - ./data:/app/data:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  chroma_data:

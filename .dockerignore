@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Data (large, mounted as volume)
+data/
+chroma_db/
+chroma_db_a100/
+chroma_ingestion_progress/
+chroma_ingestion_progress_gpu/
+*.db
+*.log
+*_progress.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Notebooks
+notebooks/
+.ipynb_checkpoints/
+
+# Scripts (ingestion utilities, not needed at runtime)
+scripts/
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

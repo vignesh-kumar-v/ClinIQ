@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from models import MedicationUpdateRequest
-from services import writer
+from services import writer, cache
 
 router = APIRouter()
 
@@ -13,4 +13,5 @@ async def update_medication(patient_id: str, body: MedicationUpdateRequest):
         "medication_updated",
         f"{body.drug} {body.field} -> {body.value}",
     )
+    await cache.invalidate(f"patient:{patient_id}")
     return {"status": "updated"}

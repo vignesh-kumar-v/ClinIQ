@@ -6,6 +6,7 @@ from models import NewPatientRequest, NewPatientResponse
 from config import patient_index_col, synthea_col
 from services import embedder, writer
 from services.encounter_enricher import enrich_encounter
+from services import cache
 from logger import get_logger
 
 log = get_logger("router.patients")
@@ -21,18 +22,25 @@ async def list_patients(
     q: Optional[str] = Query(None, description="Substring match on patient_name (case-insensitive)"),
 ):
     log.info(f"list_patients limit={limit} offset={offset} sort={sort_by} order={order} q={q!r}")
-    results = patient_index_col.get(include=["metadatas"])
-    patients = []
-    for m in results["metadatas"]:
-        if not m:
-            continue
-        patients.append({
-            "patient_id": m.get("patient_id", ""),
-            "patient_name": m.get("patient_name", ""),
-            "last_visit_date": m.get("last_visit_date", ""),
-            "chunk_count": int(m.get("chunk_count", 0)),
-            "conditions_summary": m.get("conditions_summary", ""),
-        })
+
+    cache_key = f"patients:all"
+    patients = await cache.get(cache_key)
+    if patients is None:
+        results = patient_index_col.get(include=["metadatas"])
+        patients = []
+        for m in results["metadatas"]:
+            if not m:
+                continue
+            patients.append({
+                "patient_id": m.get("patient_id", ""),
+                "patient_name": m.get("patient_name", ""),
+                "last_visit_date": m.get("last_visit_date", ""),
+                "chunk_count": int(m.get("chunk_count", 0)),
+                "conditions_summary": m.get("conditions_summary", ""),
+            })
+        await cache.set(cache_key, patients)
+    else:
+        patients = list(patients)
 
     if q:
         q_lower = q.lower()
@@ -97,6 +105,14 @@ async def get_patient(
     offset: int = Query(0, ge=0),
 ):
     log.info(f"get_patient patient={patient_id} types={types!r} limit={limit} offset={offset}")
+
+    cache_key = f"patient:{patient_id}"
+    if not types and limit == 200 and offset == 0:
+        cached = await cache.get(cache_key)
+        if cached is not None:
+            log.info(f"Cache hit for patient={patient_id}")
+            return cached
+
     # Normalise plural UI names → singular DB values (ingestion stores singular)
     _TO_SINGULAR = {
         "conditions": "condition", "medications": "medication",
@@ -154,8 +170,13 @@ async def get_patient(
         enc["text"] = enrich_encounter(patient_id, enc["text"], enc.get("metadata", {}))
 
     total = sum(len(v) for v in grouped.values())
+    result = {"patient_id": patient_id, "total": total, "offset": offset, "limit": limit, **grouped}
     log.info(f"get_patient returned {total} chunks for patient={patient_id}")
-    return {"patient_id": patient_id, "total": total, "offset": offset, "limit": limit, **grouped}
+
+    if not types and limit == 200 and offset == 0:
+        await cache.set(cache_key, result)
+
+    return result
 
 
 @router.post("/patients/new", response_model=NewPatientResponse)
@@ -207,5 +228,6 @@ async def create_patient(body: NewPatientRequest):
     )
     log.info(f"Patient {patient_id} ({patient_name}) created with {len(chunks_text)} chunks")
 
+    await cache.invalidate("patients:")
     await writer.log_activity(patient_id, "patient_created", patient_name)
     return NewPatientResponse(patient_id=patient_id, status="created")

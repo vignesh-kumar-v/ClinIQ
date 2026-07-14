@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from models import NoteRequest
 from config import patient_index_col
-from services import embedder, writer
+from services import embedder, writer, cache
 
 router = APIRouter()
 
@@ -12,6 +12,7 @@ async def add_note(patient_id: str, body: NoteRequest):
     vec = embedder.embed(body.text)
     await writer.add_note(patient_id, patient_name, body.text, body.note_type, vec)
     await writer.log_activity(patient_id, "note_added", body.text[:80])
+    await cache.invalidate(f"patient:{patient_id}")
     return {"status": "saved"}
 
 

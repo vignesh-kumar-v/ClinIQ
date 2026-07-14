@@ -89,13 +89,15 @@ app.include_router(medications.router, prefix="/api")
 app.include_router(activity.router, prefix="/api")
 app.include_router(ingest.router, prefix="/api")
 
-FRONTEND_DIR = os.environ.get("FRONTEND_DIR", os.path.join(os.path.dirname(__file__), "..", "frontend"))
+FRONTEND_DIR = os.environ.get("FRONTEND_DIR", os.path.join(os.path.dirname(__file__), "..", "frontend-react", "dist"))
 if os.path.isdir(FRONTEND_DIR):
-    app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIR, "assets")), name="assets")
 
 
-@app.get("/")
-async def root():
+@app.get("/{full_path:path}")
+async def serve_frontend(full_path: str):
+    if full_path.startswith("api/") or full_path.startswith("assets/"):
+        raise HTTPException(status_code=404)
     index_path = os.path.join(FRONTEND_DIR, "index.html")
     if os.path.isfile(index_path):
         return FileResponse(index_path)

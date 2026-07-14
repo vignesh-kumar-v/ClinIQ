@@ -7,6 +7,7 @@ log = get_logger("auth_middleware")
 
 PUBLIC_PATHS = {
     "/",
+    "/auth",
     "/api/auth/register",
     "/api/auth/login",
     "/docs",
@@ -18,7 +19,9 @@ PUBLIC_PATHS = {
 def _is_public(path: str) -> bool:
     if path in PUBLIC_PATHS:
         return True
-    if path.startswith("/static/"):
+    if path.startswith("/assets/") or path.startswith("/static/"):
+        return True
+    if path in ("/favicon.svg", "/icons.svg"):
         return True
     return False
 
